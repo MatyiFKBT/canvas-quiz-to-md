@@ -1,28 +1,25 @@
 // ==UserScript==
 // @name         Canvas Quiz to Markdown
-// @namespace    http://tampermonkey.net/
 // @version      0.1
 // @author       kiráj___arc
 // @match        https://canvas.elte.hu/*/submissions/*
 // @match        https://canvas.elte.hu/*/quizzes/*/history*
 // @require      https://raw.githubusercontent.com/eligrey/FileSaver.js/master/dist/FileSaver.js
-// @downloadURL  https://github.com/kovapatrik/canvas-quiz-to-md/raw/master/canvas_quiz_to_md.user.js
+// @downloadURL  https://github.com/matyifkbt/canvas-quiz-to-md/raw/master/canvas_quiz_to_md.user.js
 // @grant        none
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    let blocks= document.getElementsByClassName('question');
-
-    if (blocks.length > 0) {
-        console.log("helo");
+    let questions = document.querySelectorAll('.question')
+    if (questions.length > 0) {
         let button = document.createElement('button');
         button.className = 'btn btn-primary';
         button.type = "button";
         button.textContent = "Mentés Markdown-ba";
         button.id = "save-to-md";
-        button.addEventListener ("click", save , false);
+        button.addEventListener("click", save, false);
         let before = document.getElementsByClassName('quiz_score')[0];
         insertAfter(button, before);
     }
@@ -30,38 +27,76 @@
     function insertAfter(newNode, referenceNode) {
         referenceNode.parentNode.insertBefore(newNode, referenceNode.nextSibling);
     }
+    function ch(elem, sel) {
+        return elem.querySelector(sel).innerText
+    }
+    function chA(elem, sel) {
+        return [...elem.querySelectorAll(sel)].map(e => e.innerText)
+    }
 
-    function save() {
+    function save(with_points = false) {
 
-        let string_to_save = "";
 
-        for (let i = 0; i < blocks.length; i++) {
-            let curr_q = blocks[i].getElementsByClassName('text')[0];
-            string_to_save += "## " + curr_q.getElementsByClassName('question_text')[0].innerText + "\n\n";
-            let answers = curr_q.querySelectorAll('.answers_wrapper .answer');
-            for (let j = 0; j < answers.length; j++) {
-                let node = answers[j].querySelectorAll(':scope > div:not([style*="display:none"]):not([style*="display: none"])')[0];
-                let type = node.className;
-                
-                if (type.includes('answer_match')) { // listából választós - left middle right
-                    let left = node.getElementsByClassName('answer_match_left')[0].innerText;
-                    let middle = node.getElementsByClassName('answer_match_middle')[0].innerText;
-                    let right = node.getElementsByClassName('answer_match_right')[0].innerText;
-                    string_to_save += "- " + left + " " + middle + " " + right + "\n";
-                } else if (type.includes('select_answer')) { // radio button vagy checkbox
-                    let checked = node.children[0].checked;
-                    if (checked) {
-                        string_to_save += "- [x] ";
-                    } else {
-                        string_to_save += "- [ ] ";
+        let md = '';
+
+        const title = ch(document,'h2');
+        const quiz_score = ch(document,'.quiz_score')
+        const quiz_duration = ch(document,'.quiz_duration')
+        md += `# ${title}\n${quiz_score}\n\n${quiz_duration}\n`
+
+        questions.forEach(question => {
+            const questionTitle = question.querySelector('.question_name').lastChild.textContent;
+            const questionType = question.classList[2];
+            const points = ch(question,'.user_points');
+            md += `## ${questionTitle}\n${with_points ? '> ' + points : ''}\n\n`;
+
+            switch (questionType) {
+                case 'multiple_answers_question':
+                    var questionText = ch(question,'.question_text');
+                    md += `${questionText}\n`
+                    var answers = question.querySelectorAll('.answer');
+                    answers.forEach(answer => {
+                        md += `- [${[...answer.classList].includes('selected_answer') ? 'x' : ' '}] ${answer.innerText.trim()}\n`
+                    })
+                    md += '\n'
+                    break;
+                case 'fill_in_multiple_blanks_question':
+                    questions = chA(question, '.question_text > p').filter(e => e.trim()); // filter <p> tags without actual text
+                    answers = chA(question, '.answer');
+                    for (const q in questions) {
+                        md += `- ${questions[q]}\n>${answers[q]}\n`
                     }
-                    string_to_save += node.children[1].innerText + "\n";
-                }
-            }
-            string_to_save += "\n\n";
-        }
+                    md += '\n'
+                    break;
+                case 'multiple_dropdowns_question':
+                    questions = [...question.querySelectorAll('.question_text > p')].map(e=>e.firstChild.textContent.trim()).filter(e => e); // filter <p> tags without actual text
+                    var answerGroups = question.querySelectorAll('.answer_group');
+                    var selected_answers = chA(question,'.selected_answer');
+                    for (const q in questions) {
+                        md += `- ${questions[q]}\n`
+                        chA(answerGroups[q], '.answer_text').forEach(answer => {
+                            md += `\t- [${answer==selected_answers[q].trim()?'x':' '}] ${answer}\n`
+                        })
+                    }
 
-        var blob = new Blob([string_to_save], {type: "text/plain;charset=utf-8"});
+                    md += '\n'
+                    break;
+                case 'multiple_choice_question':
+                    questionText = ch(question, '.question_text');
+                    md += `${questionText}\n`
+                    answers = question.querySelectorAll('.answer');
+                    answers.forEach(answer => {
+                        md += `- [${[...answer.classList].includes('selected_answer') ? 'x' : ' '}] ${answer.innerText.trim()}\n`
+                    })
+
+                    md += '\n'
+                    break;
+                default:
+                    break;
+            }
+        });
+
+        var blob = new Blob([md], { type: "text/plain;charset=utf-8" });
         saveAs(blob, "quiz.md");
 
         return false;
